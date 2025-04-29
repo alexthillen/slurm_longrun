@@ -1,73 +1,99 @@
 #!/usr/bin/env python3
-"""
-Wrapper script 'sbatch_longrun' for submitting Slurm batch jobs via 'sbatch'.
 
-Enhanced with wrapper-specific options for chaining:
-  --max_restarts: Max restarts for chaining (default 5).
-  --verbose: Enable verbose wrapper output.
-
-Other sbatch arguments (like --time, --job-name, --signal, the job script itself)
-should be passed directly as sbatch arguments.
-
-Syntax:
-  sbatch_longrun [WRAPPER_OPTIONS] [SBATCH_ARGS ...]
-
-Example:
-  # Submit script.sl, allow up to 3 restarts if needed.
-  # Assumes script.sl handles checkpoint/restart and has #SBATCH --time=...
-  sbatch_longrun --max_restarts=3 --job-name=my_long_analysis --signal=USR1@120 script.sl
-
-Uses Click for argument parsing and subprocess.run for execution and chaining.
-"""
-
-import click
 import os
 import sys
-import subprocess
-import re
-import shlex # Use shlex for safer command display
+import time
 
-CONTEXT_SETTINGS = dict(
-    ignore_unknown_options=True,
-    allow_interspersed_args=False  # Keep wrapper options before sbatch args
-)
+import click
 
-def parse_job_id(sbatch_output):
-    """Parses sbatch output to find the submitted job ID."""
-    match = re.search(r"Submitted batch job (\d+)", sbatch_output)
-    if match:
-        return match.group(1)
-    return None
+from slurm_longrun import utils
+from slurm_longrun.common import JobStatus
 
-@click.command(context_settings=CONTEXT_SETTINGS)
-@click.option(
-    '--verbose', '-vvv',
-    is_flag=True,
-    help='Enable verbose output for the wrapper itself.'
-)
-@click.argument('sbatch_args', nargs=-1, type=click.UNPROCESSED)
-def main(max_restarts, verbose, sbatch_args):
+
+def get_job_information(job_id):
     """
-    Submits a job using sbatch and chains subsequent jobs using dependencies
-    up to max_restarts times. Assumes the job script handles checkpoint/restart.
+    Retrieves job information using sacct and scontrol commands.
+
+    Args:
+        job_id (str): The Slurm job ID.
+
+    Returns:
+        dict: A dictionary containing job information.
     """
-    sbatch_command = "sbatch"
+    sacct_info = next(
+        (x for x in utils.get_sacct_job_details(job_id) if x.get("JobID") == job_id),
+        None,
+    )
+    scontrol_info = utils.get_scontrol_show_job_details(job_id)
+    return {**sacct_info, **scontrol_info}
+
+
+def remaining_time(info):
+    """
+    Calculate the remaining time in seconds based on the run time and time limit.
+    Args:
+        info (dict): A dictionary containing job information with 'RunTime' and 'TimeLimit' keys.
+    Returns:
+        int: Remaining time in seconds.
+    """
+    run_time_str = info.get("RunTime", "00:00:00")
+    time_limit_str = info.get("TimeLimit", "00:00:00")
+
+    def time_to_seconds(time_str):
+        days = 0
+        if "-" in time_str:
+            days, time_str = time_str.split("-")
+            days = int(days)
+        hours, minutes, seconds = map(int, time_str.split(":"))
+        return days * 24 * 3600 + hours * 3600 + minutes * 60 + seconds
+
+    run_time_seconds = time_to_seconds(run_time_str)
+    time_limit_seconds = time_to_seconds(time_limit_str)
+    remaining_seconds = time_limit_seconds - run_time_seconds
+    print(f"Remaining time: {remaining_seconds} seconds")
+    return max(0, remaining_seconds)
+
+
+def run_till_completed(sbatch_args, max_restarts=10):  # CHANGE THIS
+    # Prepare Arguments
     sbatch_args_list = list(sbatch_args)
+    # sbatch_args_list = utils.patch_sbatch_args(sbatch_args_list)
+    # options_cli : dict = utils.parse_sbatch_cli_options(sbatch_args_list)
+    # options_file : dict = utils.parse_sbatch_file_options(options_cli.get("filename"))
+    # options_unified = {**options_file, **options_cli} # CLI > File
+    if True:  # verbose
+        click.echo("Verbose mode enabled.")
+        click.echo(f"sbatch args: {sbatch_args_list}")
 
-    if not sbatch_args_list:
-        click.echo("Error: No sbatch arguments or script provided.", err=True)
-        sys.exit(1)
+    # Run sbatch
+    job_id = utils.run_sbatch(sbatch_args_list)
+    os.environ["SLURM_LONGRUN_INITIAL_JOB_ID"] = job_id
+    sbatch_args_list = ["--open-mode=append"] + sbatch_args_list
 
-    if verbose:
-        click.echo(f"  --verbose={verbose}", err=True)
-        click.echo(f"sbatch_longrun: Base sbatch args: {' '.join(shlex.quote(a) for a in sbatch_args_list)}", err=True)
-        click.echo("-" * 20, err=True)
+    # Parse Job Information
+    initial_info = get_job_information(job_id)
+    click.echo(f"Initial job information: {initial_info}")
 
+    for _ in range(max_restarts):
+        info = get_job_information(job_id)
+        while JobStatus.is_final(info.get("State")) is False:
+            # Wait for a while before checking again
+            expected_runtime = remaining_time(info)
+            bounded_expected_runtime = max(min(5 * 60, expected_runtime), 5)
 
-    previous_job_id = None
-    last_submitted_job_id = None
+            print(f"Sleep for", bounded_expected_runtime, "seconds.")
+            time.sleep(bounded_expected_runtime)
+            info = get_job_information(job_id)
+        if JobStatus(info.get("State")) == JobStatus.TIMEOUT:
+            click.echo("Job has timed out. Attempting to resubmit...")
+            # Resubmit the job
+            job_id = utils.run_sbatch(sbatch_args_list)
+            info = get_job_information(job_id)
+            click.echo(f"New job information: {info}")
+        else:
+            print("The current job has reached it's final state.", info.get("State"))
+            break
 
-    # TODO
 
 if __name__ == "__main__":
-    main()
+    run_till_completed(["./example/run_job.sbatch"])
