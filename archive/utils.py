@@ -1,4 +1,7 @@
 
+from typing import Dict, List, Optional, Tuple
+
+
 def patch_sbatch_args(args):
     """
     Takes a list of sbatch command-line arguments and replaces short-form

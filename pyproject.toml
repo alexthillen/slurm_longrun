@@ -19,3 +19,6 @@ black = "^25.1.0"
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.scripts]
+sbatch_longrun = "slurm_longrun.main:cli"

@@ -6,14 +6,14 @@ import time
 
 def load_state():
     try:
-        with open("./state.json", "r") as f:
+        with open(f"{os.getenv("SLURM_SUBMIT_DIR")}/example/state.json", "r") as f:
             return json.load(f)
     except (FileNotFoundError, json.JSONDecodeError):
         return {}
 
 
 def save_state(state):
-    with open("./state.json", "w") as f:
+    with open(f"{os.getenv("SLURM_SUBMIT_DIR")}/example/state.json", "w") as f:
         json.dump(state, f)
 
 

@@ -1,41 +1,40 @@
-from enum import Enum
+# common.py
+from enum import Enum, unique
 
-
+@unique
 class JobStatus(Enum):
-    # Non-final states
-    PENDING = "PENDING"
-    RUNNING = "RUNNING"
-    SUSPENDED = "SUSPENDED"
-    COMPLETING = "COMPLETING"
-    CONFIGURING = "CONFIGURING"
-    RESIZING = "RESIZING"
-    REQUEUED = "REQUEUED"
+    PENDING      = "PENDING"
+    RUNNING      = "RUNNING"
+    SUSPENDED    = "SUSPENDED"
+    COMPLETING   = "COMPLETING"
+    CONFIGURING  = "CONFIGURING"
+    RESIZING     = "RESIZING"
+    REQUEUED     = "REQUEUED"
 
-    # Final states
-    COMPLETED = "COMPLETED"
-    FAILED = "FAILED"
-    TIMEOUT = "TIMEOUT"
-    PREEMPTED = "PREEMPTED"
-    STOPPED = "STOPPED"
-    CANCELLED = "CANCELLED"
-    BOOT_FAIL = "BOOT_FAIL"
-    NODE_FAIL = "NODE_FAIL"
-    DEADLINE = "DEADLINE"
-    OUT_OF_MEMORY = "OUT_OF_MEMORY"
+    # terminal states
+    COMPLETED    = "COMPLETED"
+    FAILED       = "FAILED"
+    TIMEOUT      = "TIMEOUT"
+    PREEMPTED    = "PREEMPTED"
+    STOPPED      = "STOPPED"
+    CANCELLED    = "CANCELLED"
+    BOOT_FAIL    = "BOOT_FAIL"
+    NODE_FAIL    = "NODE_FAIL"
+    DEADLINE     = "DEADLINE"
+    OUT_OF_MEMORY= "OUT_OF_MEMORY"
     SPECIAL_EXIT = "SPECIAL_EXIT"
-    REVOKED = "REVOKED"
+    REVOKED      = "REVOKED"
+
+    __terminal_states = {
+        COMPLETED, FAILED, TIMEOUT, PREEMPTED, STOPPED, CANCELLED,
+        BOOT_FAIL, NODE_FAIL, DEADLINE, OUT_OF_MEMORY, SPECIAL_EXIT, REVOKED
+    }
 
     @classmethod
-    def is_final(cls, status):
-        """Returns whether this is a final (terminal) state."""
-        res = JobStatus(status) not in {
-            cls.PENDING,
-            cls.RUNNING,
-            cls.SUSPENDED,
-            cls.COMPLETING,
-            cls.CONFIGURING,
-            cls.RESIZING,
-            cls.REQUEUED,
-        }
-        print(f"JobStatus.is_final({status}) = {res}")
-        return res
+    def is_final(cls, status: str) -> bool:
+        """Returns True if status is a terminal state."""
+        try:
+            st = cls(status)
+        except ValueError:
+            return False
+        return st in cls.__terminal_states

@@ -12,5 +12,5 @@
 
 set -eo pipefail
 
-python $SLURM_SUBMIT_DIR/my_script.py
+python $SLURM_SUBMIT_DIR/example/my_script.py
 

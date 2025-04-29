@@ -1,131 +1,109 @@
+# utils.py
 import re
 import subprocess
-import sys
 import time
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import List, Optional, Dict
+from loguru import logger
 
-
-def run_command(command_args: List[str]) -> Optional[str]:
+def run_command(cmd: List[str]) -> str:
     """
-    Executes a command using subprocess.run, prints command output and error details if any.
+    Execute a shell command and return its stdout.
+    
     Args:
-        command_args: List of command arguments (e.g., ['ls', '-la']).
-    Returns:
-        The command output as a string if successful.
+        cmd: List of command-and-args, e.g. ["ls", "-la"].
     Raises:
-        subprocess.CalledProcessError: If the command fails.
+        subprocess.CalledProcessError on nonzero exit.
+    Returns:
+        The captured stdout as a string.
     """
-    print(f"Running command: {' '.join(command_args)}")
+    logger.debug("Running command: {}", " ".join(cmd))
     try:
-        process = subprocess.run(
-            command_args, capture_output=True, text=True, check=True, encoding="utf-8"
-        )
-        print(f"Command output: {process.stdout}")
-        return process.stdout
+        proc = subprocess.run(cmd, capture_output=True, text=True, check=True)
     except subprocess.CalledProcessError as e:
-        print(f"Return code: {e.returncode}", file=sys.stderr)
-        if e.stdout:
-            print(f"Standard output: '{e.stdout}'", file=sys.stderr)
-        if e.stderr:
-            print(f"Standard error: '{e.stderr}'", file=sys.stderr)
+        logger.error("Command failed: {}\nstdout: {}\nstderr: {}", e, e.stdout.strip(), e.stderr.strip())
         raise e
+    logger.debug("Command output: {}", proc.stdout.strip())
+    return proc.stdout
 
-
-def run_sbatch(sbatch_args_list: List[str]) -> Optional[str]:
+def run_sbatch(args: List[str]) -> Optional[str]:
     """
-    Executes sbatch with given arguments and returns the Job ID.
-
+    Submit an sbatch job and extract its JobID.
+    
     Args:
-        sbatch_args_list: List of arguments for sbatch (e.g., ['script.sh']).
-
+        args: Arguments to sbatch, including script path.
     Returns:
-        The submitted Job ID as a string, or None if failed or not found.
+        The job ID string, or None if parsing failed.
     """
-    # Execute command using subprocess
-    command = ["sbatch"] + sbatch_args_list
-    sbatch_output = run_command(command)
-    match = re.search(r"Submitted batch job\s+(\d+)", sbatch_output, re.IGNORECASE)
-    if match:
-        time.sleep(5)
-        return match.group(1)
-    else:
-        print(
-            f"Warning: Job submitted but ID not found in output:\n{sbatch_output}",
-            file=sys.stderr,
-        )
+    output = run_command(["sbatch"] + args)
+    match = re.search(r"Submitted batch job (\d+)", output)
+    if not match:
+        logger.warning("Could not parse sbatch output: {}", output)
         return None
+    job_id = match.group(1)
+    time.sleep(5)  # give Slurm time to register
+    return job_id
 
-
-import subprocess
-
-
-def get_scontrol_show_job_details(job_id: int) -> dict:
+def get_scontrol_show_job_details(job_id: str) -> Dict[str, str]:
     """
-    Runs the 'scontrol show job <job_id>' command and parses the output into a dictionary.
+    Query `scontrol show job <job_id>` and parse key=value tokens.
+
     Args:
-        job_id (int): The job ID to query.
+        job_id: The Slurm job ID.
     Returns:
-        dict: Parsed job details as key-value pairs. E.g. : {"TimeLimit":"00:02:00", ...}
+        A dict of fields, e.g. {"TimeLimit":"00:10:00", ...}
     """
     try:
-        # Run the command and capture output
-        output = run_command(["scontrol", "show", "job", str(job_id)])
-    except subprocess.CalledProcessError as e:
+        out = run_command(["scontrol", "show", "job", job_id])
+    except subprocess.CalledProcessError:
         return {}
-    lines = output.strip().split("\n")
-    info = {}
-    for line in lines:
-        line = line.strip()
-        if not line:
-            continue
-        parts = line.split()
-        for part in parts:
-            if "=" in part:
-                key, value = part.split("=", 1)
-                info[key] = value
+    info: Dict[str, str] = {}
+    for token in out.replace("\n", " ").split():
+        if "=" in token:
+            key, val = token.split("=", 1)
+            info[key] = val
     return info
 
-
-def get_sacct_job_details(job_id) -> list:
+def get_sacct_job_details(job_id: str) -> List[Dict[str, str]]:
     """
-    Retrieves sacct output for a given job ID and parses it into a list of dictionaries.
-
+    Run `sacct -j <job_id>` and parse pipe‐separated output into dicts.
+    
     Args:
-        job_id (int): The Slurm job ID.
-
+        job_id: The Slurm job ID.
     Returns:
-        list: A list of dictionaries, where each dictionary represents a line (job step)
-              from the sacct output containing job details.
-              Returns None if there's an error running sacct or parsing the output.
-    Example:
-    [{'JobID': '389346', 'JobName': 'sbatch_longrun_example', 'State': 'TIMEOUT', 'ExitCode': '0:0',
-    'Reason': 'None', 'Comment': ''}, ...]
+        A list of dicts-one per step-containing fields like State, Elapsed, etc.
     """
-    headers = ["JobID", "JobName", "State", "ExitCode", "Reason", "Comment", "Elapsed"]
-    command = [
-        "sacct",
-        "-j",
-        str(job_id),
-        f"--format={','.join(headers)}",
-        "--noheader",  # Add --noheader to simplify parsing
-        "-P",  # Use pipe separator for easier splitting
-    ]
-    process = subprocess.run(
-        command, capture_output=True, text=True, check=True, encoding="utf-8"
-    )
-    output = process.stdout.strip()
-    results = []
-    if not output:
+    headers = ["JobID","JobName","State","ExitCode","Reason","Comment","Elapsed"]
+    cmd = ["sacct", "-j", job_id, f"--format={','.join(headers)}", "--noheader", "-P"]
+    proc = subprocess.run(cmd, capture_output=True, text=True, check=True)
+    out = proc.stdout.strip()
+    if not out:
         return []
-
-    for line in output.split("\n"):
-        values = line.strip().split("|")  # Split by pipe
-        num_values = len(values)
-        if num_values < len(headers):
-            values.extend([""] * (len(headers) - num_values))
-        elif num_values > len(headers):
-            values = values[: len(headers)]
-        if len(values) == len(headers) and values[0]:
-            results.append(dict(zip(headers, values)))
+    results = []
+    for line in out.splitlines():
+        parts = line.split("|")
+        # pad or truncate to len(headers)
+        parts = (parts + [""]*len(headers))[:len(headers)]
+        results.append(dict(zip(headers, parts)))
     return results
 
+def time_to_seconds(timestr: str) -> int:
+    """
+    Convert "D-HH:MM:SS" or "HH:MM:SS" to total seconds.
+    
+    Definition:
+      D = days, HH = hours, MM = minutes, SS = seconds.
+    Args:
+        timestr: e.g. "1-02:30:00" or "00:15:20"
+    Returns:
+        Total seconds as int.
+    """
+    days = 0
+    if "-" in timestr:
+        days_part, rest = timestr.split("-", 1)
+        days = int(days_part)
+    else:
+        rest = timestr
+    h, m, s = map(int, rest.split(":"))
+    total = days*86400 + h*3600 + m*60 + s
+    logger.trace("Parsed {} → {}s", timestr, total)
+    return total

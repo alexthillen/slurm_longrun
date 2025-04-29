@@ -1,99 +1,119 @@
 #!/usr/bin/env python3
-
 import os
-import sys
 import time
+import multiprocessing
 
 import click
 
+from slurm_longrun.logger import setup_logger, Verbosity, logger
 from slurm_longrun import utils
 from slurm_longrun.common import JobStatus
 
-
-def get_job_information(job_id):
+# 1) Tell Click to let unknown flags slip by and collect them at the end
+@click.command(
+    context_settings={
+        "allow_extra_args": True,
+        "ignore_unknown_options": True,
+        "allow_interspersed_args": False,
+    }
+)
+@click.option(
+    "--use-verbosity",
+    type=click.Choice([v.name for v in Verbosity]),
+    default=Verbosity.DEFAULT.name,
+    help="Logging verbosity",
+)
+@click.option(
+    "--use-detached/--no-detached",
+    default=False,
+    show_default=True,
+    help="Run in detached mode",
+)
+@click.option(
+    "--max-restarts",
+    default=99,
+    show_default=True,
+    help="Number of times to resubmit on TIMEOUT",
+)
+@click.argument(
+  "sbatch_args",
+  nargs=-1,
+  type=click.UNPROCESSED,
+  metavar="[SBATCH ARGS] script.sbatch [SCRIPT ARGS]",
+)
+@click.pass_context
+def cli(ctx, use_verbosity, use_detached, max_restarts, sbatch_args):
     """
-    Retrieves job information using sacct and scontrol commands.
-
-    Args:
-        job_id (str): The Slurm job ID.
-
-    Returns:
-        dict: A dictionary containing job information.
+    Wrapper that takes any sbatch flags *after* your wrapper-options,
+    e.g.:
+      sbatch_longrun --time=00:02:00 --job-name=my_job example/run_job.sbatch
+      sbatch_longrun --use-verbosity VERBOSE --job-name=my_job example/run_job.sbatch
     """
-    sacct_info = next(
-        (x for x in utils.get_sacct_job_details(job_id) if x.get("JobID") == job_id),
-        None,
-    )
-    scontrol_info = utils.get_scontrol_show_job_details(job_id)
-    return {**sacct_info, **scontrol_info}
+    if use_detached:
+        proc = multiprocessing.Process(
+            target=run_until,
+            args=(sbatch_args, use_verbosity, max_restarts),
+        )
+        proc.daemon = False
+        proc.start()
+        
+        click.echo(f"Started detached process with PID: {proc.pid}")
+    else:
+        run_until(sbatch_args, use_verbosity, max_restarts)
 
 
-def remaining_time(info):
-    """
-    Calculate the remaining time in seconds based on the run time and time limit.
-    Args:
-        info (dict): A dictionary containing job information with 'RunTime' and 'TimeLimit' keys.
-    Returns:
-        int: Remaining time in seconds.
-    """
-    run_time_str = info.get("RunTime", "00:00:00")
-    time_limit_str = info.get("TimeLimit", "00:00:00")
+def run_until(sbatch_args, use_verbosity, max_restarts):
+    setup_logger(Verbosity[use_verbosity])
+    logger.info("Starting with verbosity={}", use_verbosity)
+    logger.debug("sbatch_args={}", sbatch_args)
 
-    def time_to_seconds(time_str):
-        days = 0
-        if "-" in time_str:
-            days, time_str = time_str.split("-")
-            days = int(days)
-        hours, minutes, seconds = map(int, time_str.split(":"))
-        return days * 24 * 3600 + hours * 3600 + minutes * 60 + seconds
+    # Submit initial job
+    sbatch_list = list(sbatch_args)
+    job_id = utils.run_sbatch(sbatch_list)
+    if not job_id:
+        logger.error("Initial sbatch submission failed.")
+        return
+    logger.success("Initial job submitted with ID: {}", job_id)
 
-    run_time_seconds = time_to_seconds(run_time_str)
-    time_limit_seconds = time_to_seconds(time_limit_str)
-    remaining_seconds = time_limit_seconds - run_time_seconds
-    print(f"Remaining time: {remaining_seconds} seconds")
-    return max(0, remaining_seconds)
-
-
-def run_till_completed(sbatch_args, max_restarts=10):  # CHANGE THIS
-    # Prepare Arguments
-    sbatch_args_list = list(sbatch_args)
-    # sbatch_args_list = utils.patch_sbatch_args(sbatch_args_list)
-    # options_cli : dict = utils.parse_sbatch_cli_options(sbatch_args_list)
-    # options_file : dict = utils.parse_sbatch_file_options(options_cli.get("filename"))
-    # options_unified = {**options_file, **options_cli} # CLI > File
-    if True:  # verbose
-        click.echo("Verbose mode enabled.")
-        click.echo(f"sbatch args: {sbatch_args_list}")
-
-    # Run sbatch
-    job_id = utils.run_sbatch(sbatch_args_list)
     os.environ["SLURM_LONGRUN_INITIAL_JOB_ID"] = job_id
-    sbatch_args_list = ["--open-mode=append"] + sbatch_args_list
+    sbatch_list.insert(0, "--open-mode=append")
 
-    # Parse Job Information
-    initial_info = get_job_information(job_id)
-    click.echo(f"Initial job information: {initial_info}")
+    for attempt in range(1, max_restarts + 1):
+        logger.info("Monitoring job {} (attempt {}/{})", job_id, attempt, max_restarts)
+        info = _fetch_info(job_id)
 
-    for _ in range(max_restarts):
-        info = get_job_information(job_id)
-        while JobStatus.is_final(info.get("State")) is False:
-            # Wait for a while before checking again
-            expected_runtime = remaining_time(info)
-            bounded_expected_runtime = max(min(5 * 60, expected_runtime), 5)
+        # Poll until we hit a final state
+        while not JobStatus.is_final(info.get("State", "")):
+            logger.debug("Job {} in state: {}", job_id, info.get("State"))
+            rem = utils.time_to_seconds(info.get("TimeLimit", "00:00:00")) \
+                - utils.time_to_seconds(info.get("RunTime", "00:00:00"))
+            sleep_secs = max(5, min(rem, 5 * 60))
+            logger.debug("Sleeping {}s (remaining {}s)", sleep_secs, rem)
+            time.sleep(sleep_secs)
+            info = _fetch_info(job_id)
 
-            print(f"Sleep for", bounded_expected_runtime, "seconds.")
-            time.sleep(bounded_expected_runtime)
-            info = get_job_information(job_id)
-        if JobStatus(info.get("State")) == JobStatus.TIMEOUT:
-            click.echo("Job has timed out. Attempting to resubmit...")
-            # Resubmit the job
-            job_id = utils.run_sbatch(sbatch_args_list)
-            info = get_job_information(job_id)
-            click.echo(f"New job information: {info}")
+        state = info.get("State")
+        logger.info("Job {} entered final state: {}", job_id, state)
+
+        # If TIMEOUT and we still have retries, resubmit
+        if state == JobStatus.TIMEOUT.value and attempt < max_restarts:
+            job_id = utils.run_sbatch(sbatch_list)
+            if not job_id:
+                logger.error("Resubmission failed.")
+                break
+            logger.success("Job timed out → resubmitted job with ID: {}", job_id)
         else:
-            print("The current job has reached it's final state.", info.get("State"))
             break
 
 
-if __name__ == "__main__":
-    run_till_completed(["./example/run_job.sbatch"])
+def _fetch_info(job_id: str) -> dict:
+    sacct = next(
+        (x for x in utils.get_sacct_job_details(job_id) if x["JobID"] == job_id),
+        {}
+    )
+    sctrl = utils.get_scontrol_show_job_details(job_id)
+    merged = {**sacct, **sctrl}
+    logger.debug("Fetched info for {}: {}", job_id, merged)
+    return merged
+
+
