@@ -22,7 +22,7 @@ pip install slurm-longrun
 Instead of calling `sbatch` directly, use the `sbatch_longrun` wrapper:
 
 ```bash
-sbatch_longrun [OPTIONS] -- [SBATCH_ARGS…]
+sbatch_longrun [OPTIONS] [SBATCH_ARGS…]
 ```
 
 Everything after `--` is passed directly to `sbatch`.  
