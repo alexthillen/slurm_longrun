@@ -1,46 +1,119 @@
-# Slurm Longrun
+## Slurm Longrun
 
-## Overview
+Slurm Longrun is a Python package that wraps Slurm’s `sbatch` command to automatically resubmit jobs that time out, allowing you to run workloads that exceed a single‐job walltime without manual intervention. It supports optional terminal detachment (so your monitor survives after you log out), configurable retry limits, and built-in logging via Loguru.
 
-Slurm Longrun is a `python` package that provides a simple command line interface (CLI) for submitting long-running jobs, that exceed the `walltime`, to a Slurm workload manager.
+---
 
-## Usage
-To use Slurm Longrun, you need to have `python` and `pip` installed on your system. You can install the package using pip:
+## Installation
 
+Prerequisites  
+- Python 3.10+  
+- Slurm workload manager (`sbatch`, `sacct`, `scontrol` in your `PATH`)  
+
+Install from PyPI:  
 ```bash
 pip install slurm-longrun
 ```
 
-## Command Line Interface (CLI)
+---
 
-The Slurm Longrun CLI provides a simple way to submit long-running jobs to a Slurm workload manager. The basic usage is as follows:
+## Quickstart
 
-```bash
-sbatch_longrun [OPTIONS] [SBATCH_ARGS ...]
-```
-
-Where `OPTIONS` are the options for the Slurm Longrun CLI and `SBATCH_ARGS` are the arguments for the `sbatch` command.
-
-For example, assume the walltime is set to 30 minutes, but your job takes more than that. You can submit your job using the following command:
+Instead of calling `sbatch` directly, use the `sbatch_longrun` wrapper:
 
 ```bash
-sbatch_longrun --time=30:00 --job-name=my_job my_script.sbatch
+sbatch_longrun [OPTIONS] -- [SBATCH_ARGS…]
 ```
 
-This will restart your job every 30 minutes until it completes.
+Everything after `--` is passed directly to `sbatch`.  
 
-## Graceful Timeout
+Example: your job runs longer than 30 minutes, so you give it a 30 min walltime and let Longrun resubmit on timeout:
 
-`slurm_longrun` also provides a simple way to register signal handlers, which can be used to checkpoint your model weights or save any progress upon receiving `SIGTERM` signal.
-
-```py
-import slurm_longrun
-
-slurm_longrun.register_signal_handler(
-    signal.SIGTERM,
-    save_checkpoint,
-)
+```bash
+sbatch_longrun --max-restarts 5 --time=00:30:00 --job-name=my_job -- my_script.sbatch
 ```
 
-The type and time of signal slurm sends can be configured using the `--signal` option. 
-For example `--signal=SIGUSR1@90` will send `SIGUSR1` signal 90 seconds before the job is terminated, similar to `--signal=SIGTERM@90`.
+This will:  
+1. Submit `my_script.sbatch` with a 30 min limit.  
+2. When it hits the 30 min walltime (`TIMEOUT`), automatically resubmit (appending to the same log file).  
+3. Repeat up to 5 times or until the job completes successfully.
+
+---
+
+## Command-Line Interface
+
+Usage  
+```bash
+sbatch_longrun [OPTIONS] [SBATCH_ARGS…]
+```
+
+Options  
+-  `--use-verbosity [DEFAULT|VERBOSE|SILENT]`  
+ Logging level (DEFAULT = INFO, VERBOSE = DEBUG, SILENT = WARNING).  
+-  `--detached / --no-detached`  
+ Run the monitor loop in background (detached from your terminal).  
+-  `--max-restarts INTEGER`  
+ Maximum number of resubmissions on `TIMEOUT`. Default: 99.  
+-  `-h, --help`  
+ Show help and exit.  
+
+All other flags after `--` are forwarded to `sbatch`.  
+
+### Examples
+
+1. Basic, retry up to 3 times, verbose logging:  
+   ```bash
+   slurm-longrun --use-verbosity VERBOSE --max-restarts 3 -- \
+     --time=02:00:00 --job-name=deep_train train.sbatch
+   ```
+
+2. Detach the monitor so it survives logout:  
+   ```bash
+   slurm-longrun --detached -- \
+     --time=01:00:00 --job-name=data_proc data_pipeline.sbatch
+   # → prints “Monitor running in background PID: ”
+   ```
+
+---
+
+## How It Works
+
+1. **Submit**  
+   Calls `sbatch` with your arguments; parses the returned job ID.  
+2. **Monitor**  
+   - Polls `sacct` + `scontrol` until the job reaches a terminal state.  
+   - If `TIMEOUT` and you haven’t exceeded `--max-restarts`, it immediately resubmits with `--open-mode=append` to preserve logs.  
+3. **Detach** (optional)  
+   If `--detached` is passed, the process forks twice, detaches from the terminal (`setsid`), redirects stdio to `/dev/null`, and continues monitoring in background.  
+
+---
+
+## Environment Variables
+
+SLURM_LONGRUN_INITIAL_JOB_ID  
+- Set internally to the first submission’s job ID.  
+- You can read it in your job script (e.g., to name checkpoints).
+
+---
+
+## Dependencies
+
+- click  
+- loguru  
+
+These are installed automatically via pip.
+
+---
+
+## Summary of CLI Options
+
+| Option                       | Default         | Description                                                  |
+| ---------------------------- | --------------- | ------------------------------------------------------------ |
+| `--use-verbosity`            | DEFAULT         | Logging verbosity: DEFAULT (INFO), VERBOSE, SILENT (WARNING) |
+| `--detached / --no-detached` | `--no-detached` | Detach monitoring loop into background process               |
+| `--max-restarts `            | 99              | Max auto-resubmissions on TIMEOUT                            |
+| `-- [SBATCH_ARGS…]`          | –               | All subsequent flags passed directly to `sbatch`             |
+
+---
+
+Enjoy uninterrupted long‐running Slurm jobs! 🐢→🚀
