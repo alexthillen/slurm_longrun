@@ -30,13 +30,14 @@ Everything after `--` is passed directly to `sbatch`.
 Example: your job runs longer than 30 minutes, so you give it a 30 min walltime and let Longrun resubmit on timeout:
 
 ```bash
-sbatch_longrun --max-restarts 5 --time=00:30:00 --job-name=my_job -- my_script.sbatch
+sbatch_longrun --max-restarts 999 --time=00:30:00 --job-name=my_job my_script.sbatch
+#sbatch_longrun <thiswrapperargs> <=========sbatch args===========> <===script.sh==>
 ```
 
 This will:  
 1. Submit `my_script.sbatch` with a 30 min limit.  
-2. When it hits the 30 min walltime (`TIMEOUT`), automatically resubmit (appending to the same log file).  
-3. Repeat up to 5 times or until the job completes successfully.
+2. When it hits the 30 min walltime (`TIMEOUT`), automatically resubmit (opens log file in append mode).  
+3. Resubmit up to 999 times or until the job completes successfully.
 
 ---
 
@@ -57,19 +58,19 @@ Options
 -  `-h, --help`  
  Show help and exit.  
 
-All other flags after `--` are forwarded to `sbatch`.  
+All other flags are forwarded to `sbatch`, they must be provided **after** the wrapper flags. 
 
 ### Examples
 
 1. Basic, retry up to 3 times, verbose logging:  
    ```bash
-   slurm-longrun --use-verbosity VERBOSE --max-restarts 3 -- \
+   slurm-longrun --use-verbosity VERBOSE --max-restarts 3 \
      --time=02:00:00 --job-name=deep_train train.sbatch
    ```
 
 2. Detach the monitor so it survives logout:  
    ```bash
-   slurm-longrun --detached -- \
+   slurm-longrun --detached  \
      --time=01:00:00 --job-name=data_proc data_pipeline.sbatch
    # → prints “Monitor running in background PID: ”
    ```
@@ -112,8 +113,4 @@ These are installed automatically via pip.
 | `--use-verbosity`            | DEFAULT         | Logging verbosity: DEFAULT (INFO), VERBOSE, SILENT (WARNING) |
 | `--detached / --no-detached` | `--no-detached` | Detach monitoring loop into background process               |
 | `--max-restarts `            | 99              | Max auto-resubmissions on TIMEOUT                            |
-| `-- [SBATCH_ARGS…]`          | –               | All subsequent flags passed directly to `sbatch`             |
-
----
-
-Enjoy uninterrupted long‐running Slurm jobs! 🐢→🚀
+| `[SBATCH_ARGS…]`          |  /              | All subsequent flags passed directly to `sbatch`             |
