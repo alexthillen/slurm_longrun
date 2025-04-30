@@ -9,8 +9,16 @@ packages = [{include = "slurm_longrun"}]
 [tool.poetry.dependencies]
 python = "^3.10"
 click = "^8.1.8"
+loguru = "^0.7.3"
+isort = "^6.0.1"
 
+
+[tool.poetry.group.dev.dependencies]
+black = "^25.1.0"
 
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.scripts]
+sbatch_longrun = "slurm_longrun.cli:main"
