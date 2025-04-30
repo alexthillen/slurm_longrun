@@ -1,5 +1,5 @@
 [tool.poetry]
-name = "slurm-longrun"
+name = "slurm_longrun"
 version = "0.1.0"
 description = ""
 authors = ["Alex Thillen <alexthillen852@gmail.com>"]
