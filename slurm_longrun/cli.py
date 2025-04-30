@@ -5,7 +5,7 @@ import time
 import click
 from slurm_longrun.logger import setup_logger, Verbosity
 from slurm_longrun.runner import SlurmRunner
-from slurm_longrun.utils import _run_detached
+from slurm_longrun.utils import run_detached
 
 @click.command(
     context_settings={
@@ -50,7 +50,7 @@ def main(use_verbosity, detached, max_restarts, sbatch_args):
 
     if detached:
         # click.echo(f"Starting detached monitor (parent PID: {os.getpid()})…")
-        child_pid = _run_detached(runner.run)
+        child_pid = run_detached(runner.run)
         click.echo(f"Monitor running in background PID: {child_pid}")
         time.sleep(2) 
     else:
