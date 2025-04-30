@@ -42,7 +42,6 @@ def run_sbatch(args: List[str]) -> Optional[str]:
         return None
 
     job_id = match.group(1)
-    time.sleep(5)  # allow Slurm to register the job
     return job_id
 
 
@@ -103,13 +102,13 @@ def time_to_seconds(timestr: str) -> int:
     return total
 
 
-def _run_detached(func, *args, **kwargs) -> int:
+def run_detached(func, *args, **kwargs) -> int:
     """
     Fork+setsid a child to run func(*args, **kwargs), return its PID immediately.
     Not supported on Windows.
     """
     if os.name == "nt":
-        raise RuntimeError("_run_detached is not supported on Windows")
+        raise RuntimeError("run_detached is not supported on Windows")
 
     def _wrapper(pid_queue: multiprocessing.Queue):
         # first fork
