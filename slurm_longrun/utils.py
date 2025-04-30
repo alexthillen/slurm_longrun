@@ -1,6 +1,9 @@
 # utils.py
+import multiprocessing
+import os
 import re
 import subprocess
+import sys
 import time
 from typing import List, Optional, Dict
 from loguru import logger
@@ -107,3 +110,56 @@ def time_to_seconds(timestr: str) -> int:
     total = days*86400 + h*3600 + m*60 + s
     logger.trace("Parsed {} → {}s", timestr, total)
     return total
+
+def _run_detached(func, *args, **kwargs):
+    """
+    Runs func(*args, **kwargs) in a fully detached child process
+    and returns *that* child’s PID immediately.
+    Throws RuntimeError on Windows.
+    """
+    if os.name == 'nt':
+        logger.error("_run_detached is not supported on Windows")
+        raise RuntimeError("_run_detached is not supported on Windows")
+
+    def _wrapper(pid_queue):
+        try:
+            # On Unix: fork into (parent=A, child=B)
+            pid = os.fork()
+            if pid > 0:
+                # In fork‐parent A: send the child B’s pid back to main
+                pid_queue.put(pid)
+                return       # A exits wrapper and then the Process A dies
+        except OSError:
+            # This block should not be reached on Unix
+            pid_queue.put(os.getpid())
+            func(*args, **kwargs)
+            return
+
+        # In fork‐child B: detach completely and run your function
+        os.setsid()
+        func(*args, **kwargs)
+        os._exit(0)       # ensure B never falls back into wrapper
+
+    # 1. Make a 1‐slot Queue for parent→main communication
+    pid_queue = multiprocessing.Queue(1)
+
+    # 2. Launch the wrapper in a non‐daemon Process so it outlives main
+    worker = multiprocessing.Process(target=_wrapper, args=(pid_queue,))
+    worker.daemon = False
+    worker.start()
+
+    # 3. Read the real worker’s pid and return it
+    child_pid = pid_queue.get()
+    pid_queue.close()
+    return child_pid
+
+def detach_terminal():
+    sys.stdout.flush()
+    sys.stderr.flush()
+
+    # 2. Redirect stdin, stdout, stderr to /dev/null
+    with open(os.devnull, 'rb', 0) as devnull_in:
+        os.dup2(devnull_in.fileno(), sys.stdin.fileno())
+    with open(os.devnull, 'ab', 0) as devnull_out:
+        os.dup2(devnull_out.fileno(), sys.stdout.fileno())
+        os.dup2(devnull_out.fileno(), sys.stderr.fileno())

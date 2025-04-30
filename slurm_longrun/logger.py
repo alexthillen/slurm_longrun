@@ -34,3 +34,4 @@ def setup_logger(verbosity: Verbosity = Verbosity.DEFAULT) -> None:
         diagnose=True
     )
 
+setup_logger()

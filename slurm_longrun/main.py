@@ -2,6 +2,7 @@
 import os
 import time
 import multiprocessing
+from typing import Any, Dict
 
 import click
 
@@ -46,30 +47,32 @@ def cli(ctx, use_verbosity, use_detached, max_restarts, sbatch_args):
     """
     Wrapper that takes any sbatch flags *after* your wrapper-options,
     e.g.:
-      sbatch_longrun --time=00:02:00 --job-name=my_job example/run_job.sbatch
-      sbatch_longrun --use-verbosity VERBOSE --job-name=my_job example/run_job.sbatch
+      "sbatch_longrun --time=00:02:00 --job-name=my_job example/run_job.sbatch"
+      or
+      "sbatch_longrun --use-verbosity VERBOSE --job-name=my_job example/run_job.sbatch"
     """
-    if use_detached:
-        proc = multiprocessing.Process(
-            target=run_until,
-            args=(sbatch_args, use_verbosity, max_restarts),
-        )
-        proc.daemon = False
-        proc.start()
-        
-        click.echo(f"Started detached process with PID: {proc.pid}")
-    else:
-        run_until(sbatch_args, use_verbosity, max_restarts)
-
-
-def run_until(sbatch_args, use_verbosity, max_restarts):
     setup_logger(Verbosity[use_verbosity])
-    logger.info("Starting with verbosity={}", use_verbosity)
+    logger.debug("Starting with verbosity={}", use_verbosity)
+    if use_detached:
+        # print pid of this process
+        logger.info("Running in detached mode")
+        logger.info("This process PID: {}", os.getpid())
+        pid = utils._run_detached(run_until, sbatch_args, use_detached, max_restarts)
+        logger.info("Detached process started with PID: {}", pid)
+        time.sleep(2)  
+        return
+    else:
+        run_until(sbatch_args, use_verbosity, use_detached, max_restarts)
+
+
+def run_until(sbatch_args, use_detached, max_restarts):
     logger.debug("sbatch_args={}", sbatch_args)
 
     # Submit initial job
     sbatch_list = list(sbatch_args)
     job_id = utils.run_sbatch(sbatch_list)
+    if use_detached:
+        utils.detach_terminal()
     if not job_id:
         logger.error("Initial sbatch submission failed.")
         return
@@ -83,7 +86,7 @@ def run_until(sbatch_args, use_verbosity, max_restarts):
         info = _fetch_info(job_id)
 
         # Poll until we hit a final state
-        while not JobStatus.is_final(info.get("State", "")):
+        while not JobStatus.is_final(extract_job_status(info)):
             logger.debug("Job {} in state: {}", job_id, info.get("State"))
             rem = utils.time_to_seconds(info.get("TimeLimit", "00:00:00")) \
                 - utils.time_to_seconds(info.get("RunTime", "00:00:00"))
@@ -103,8 +106,30 @@ def run_until(sbatch_args, use_verbosity, max_restarts):
                 break
             logger.success("Job timed out → resubmitted job with ID: {}", job_id)
         else:
+            if JobStatus.is_success(state):
+                logger.success("Job completed successfully.")
+            else:
+                logger.warning("Job finished with state: {}", state)
             break
 
+def extract_job_status(info: Dict[str, Any]) -> JobStatus:
+    """
+    Extract the job status from a Slurm‐style info dictionary.
+
+    1. Try 'JobState' key.
+    2. Fallback to the first word of 'State' if present.
+    3. Validate against JobStatus, default to UNKNOWN on failure.
+
+    Returns:
+        A JobStatus enum member.
+    """
+    try:
+        raw = info.get("JobState") or info.get("State", "").split(maxsplit=1)[0]
+        status = JobStatus(raw)
+    except (ValueError, IndexError):
+        logger.warning(f"Unknown job state: {raw!r}. Defaulting to UNKNOWN.")
+        status = JobStatus.UNKNOWN
+    return status.value
 
 def _fetch_info(job_id: str) -> dict:
     sacct = next(
