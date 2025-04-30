@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest # Use the latest Ubuntu runner
     environment: # Define environment for PyPI trusted publishing mapping
       name: pypi
-      url: https://pypi.org/p/slurm-longrun # Link to your package on PyPI
+      url: https://pypi.org/p/slurm_longrun # Link to your package on PyPI
 
     steps:
       - name: Checkout repository
