@@ -1,0 +1,38 @@
+# .github/workflows/pypi-publish.yml
+
+name: Publish Python Package to PyPI
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read # Needed to checkout the code
+  id-token: write # Needed for OIDC token generation
+
+jobs:
+  deploy:
+    name: Build and publish Python distributions to PyPI
+    runs-on: ubuntu-latest # Use the latest Ubuntu runner
+    environment: # Define environment for PyPI trusted publishing mapping
+      name: pypi
+      url: https://pypi.org/p/slurm-longrun # Link to your package on PyPI
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4 # Checks out your code
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10" # Choose a Python version compatible with your project (^3.10)
+
+      - name: Install Poetry
+        uses: snok/install-poetry@v1 # Recommended action to install Poetry
+        with:
+          virtualenvs-create: false # Don't create venvs in CI for build/publish
+      - name: Build package
+        run: poetry build
+
+      - name: Publish package distributions to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1

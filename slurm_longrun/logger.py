@@ -1,37 +1,30 @@
-# logger.py
+# slurm_longrun/logger.py
+
 import sys
+from enum import Enum
+
 from loguru import logger
-from enum import Enum, auto
+
 
 class Verbosity(Enum):
-    DEFAULT = "DEFAULT"
-    VERBOSE = "VERBOSE"
-    SILENT = "SILENT"
+    DEFAULT = "INFO"
+    VERBOSE = "DEBUG"
+    SILENT = "WARNING"
+
 
 LOG_FORMAT = "{time:YYYY-MM-DD HH:mm:ss} | <level>{level:<8}</level> : {message}"
 
+
 def setup_logger(verbosity: Verbosity = Verbosity.DEFAULT) -> None:
     """
-    Configures the loguru logger based on desired verbosity.
+    Configure Loguru root logger with a single stdout sink.
     """
-    # Remove any pre-existing handlers
     logger.remove()
-
-    level_map = {
-        Verbosity.DEFAULT: "INFO",
-        Verbosity.VERBOSE: "DEBUG",
-        Verbosity.SILENT: "WARNING",
-    }
-    level = level_map[verbosity]
-
-    # Add stdout handler
     logger.add(
         sys.stdout,
-        level=level,
+        level=verbosity.value,
         format=LOG_FORMAT,
         colorize=True,
         backtrace=True,
-        diagnose=True
+        diagnose=True,
     )
-
-setup_logger()
