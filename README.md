@@ -25,7 +25,6 @@ Instead of calling `sbatch` directly, use the `sbatch_longrun` wrapper:
 sbatch_longrun [OPTIONS] [SBATCH_ARGS…]
 ```
 
-Everything after `--` is passed directly to `sbatch`.  
 
 Example: your job runs longer than 30 minutes, so you give it a 30 min walltime and let Longrun resubmit on timeout:
 
@@ -64,13 +63,16 @@ All other flags are forwarded to `sbatch`, they must be provided **after** the w
 
 1. Basic, retry up to 3 times, verbose logging:  
    ```bash
-   slurm-longrun --use-verbosity VERBOSE --max-restarts 3 \
+   sbatch_longrun --use-verbosity VERBOSE --max-restarts 3 \
      --time=02:00:00 --job-name=deep_train train.sbatch
    ```
 
+   `--use-verbosity VERBOSE --max-restarts 3` are passed to the monitor process.
+   `--time=02:00:00 --job-name=deep_train` are passed to `sbatch`.
+
 2. Detach the monitor so it survives logout:  
    ```bash
-   slurm-longrun --detached  \
+   sbatch_longrun --detached  \
      --time=01:00:00 --job-name=data_proc data_pipeline.sbatch
    # → prints “Monitor running in background PID: ”
    ```
@@ -113,4 +115,4 @@ These are installed automatically via pip.
 | `--use-verbosity`            | DEFAULT         | Logging verbosity: DEFAULT (INFO), VERBOSE, SILENT (WARNING) |
 | `--detached / --no-detached` | `--no-detached` | Detach monitoring loop into background process               |
 | `--max-restarts `            | 99              | Max auto-resubmissions on TIMEOUT                            |
-| `[SBATCH_ARGS…]`          |  /              | All subsequent flags passed directly to `sbatch`             |
+| `[SBATCH_ARGS…]`             | /               | All subsequent flags passed directly to `sbatch`             |

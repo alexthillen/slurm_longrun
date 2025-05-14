@@ -20,7 +20,12 @@ def run_command(cmd: List[str]) -> str:
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
     except subprocess.CalledProcessError as e:
-        logger.error("Command failed: {}\nstdout: {}\nstderr: {}", e, e.stdout.strip(), e.stderr.strip())
+        logger.error(
+            "Command failed: {}\nstdout: {}\nstderr: {}",
+            e,
+            e.stdout.strip(),
+            e.stderr.strip(),
+        )
         raise e
     logger.trace("Command stdout: {}", result.stdout.strip())
     return result.stdout.strip()

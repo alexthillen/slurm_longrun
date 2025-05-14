@@ -6,6 +6,8 @@ import click
 from slurm_longrun.logger import setup_logger, Verbosity
 from slurm_longrun.runner import SlurmRunner
 from slurm_longrun.utils import run_detached
+from loguru import logger
+
 
 @click.command(
     context_settings={
@@ -42,19 +44,28 @@ def main(use_verbosity, detached, max_restarts, sbatch_args):
     passed directly to sbatch.
     """
     setup_logger(Verbosity[use_verbosity])
+
+    logger.debug(
+        "Arguments passed to sbatch monitor: {}",
+        {
+            "use_verbosity": use_verbosity,
+            "detached": detached,
+            "max_restarts": max_restarts,
+            "sbatch_args": sbatch_args,
+        },
+    )
     runner = SlurmRunner(
-        sbatch_args=list(sbatch_args),
-        max_restarts=max_restarts,
-        detached=detached,
+        sbatch_args=list(sbatch_args), max_restarts=max_restarts, detached=detached
     )
 
     if detached:
         # click.echo(f"Starting detached monitor (parent PID: {os.getpid()})…")
         child_pid = run_detached(runner.run)
         click.echo(f"Monitor running in background PID: {child_pid}")
-        time.sleep(2) 
+        time.sleep(2)
     else:
         runner.run()
+
 
 if __name__ == "__main__":
     main()

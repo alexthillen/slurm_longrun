@@ -54,4 +54,18 @@ class JobStatus(Enum):
         True if this status counts as a success for our purposes.
         We treat TIMEOUT as a “successful” endpoint (to trigger resubmit).
         """
-        return self in {JobStatus.COMPLETED, JobStatus.TIMEOUT}
+        return self in {JobStatus.COMPLETED}
+
+    @property
+    def should_resubmit(self) -> bool:
+        """
+        True if this status should trigger a resubmission.
+        """
+        return self in {
+            JobStatus.TIMEOUT,
+            JobStatus.DEADLINE,
+            JobStatus.PREEMPTED,
+            JobStatus.NODE_FAIL,
+            JobStatus.OUT_OF_MEMORY,
+            JobStatus.REVOKED,
+        }

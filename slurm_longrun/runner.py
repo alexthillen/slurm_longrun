@@ -7,9 +7,13 @@ from typing import List
 from loguru import logger
 
 from slurm_longrun.common import JobStatus
-from slurm_longrun.utils import (detach_terminal, get_sacct_job_details,
-                                 get_scontrol_show_job_details, run_sbatch,
-                                 time_to_seconds)
+from slurm_longrun.utils import (
+    detach_terminal,
+    get_sacct_job_details,
+    get_scontrol_show_job_details,
+    run_sbatch,
+    time_to_seconds,
+)
 
 
 class SlurmRunner:
@@ -89,15 +93,15 @@ class SlurmRunner:
 
             logger.info("Job {} reached final state: {}", job_id, status.value)
 
-            # TIMEOUT → resubmit if allowed
-            if status == JobStatus.TIMEOUT and attempt < self.max_restarts:
+            # TIMEOUT, NODE_FAIL, ... → resubmit if allowed
+            if status.should_resubmit and attempt < self.max_restarts:
                 attempt += 1
                 new_id = run_sbatch(retry_args)
                 if not new_id:
                     logger.error("Resubmission failed.")
                     return status
                 job_id = new_id
-                logger.success("Resubmitted timed-out job as {}", job_id)
+                logger.success(f"Resubmitted based on status={status.value} job as {job_id}")
                 continue
 
             # final outcome
