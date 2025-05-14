@@ -74,7 +74,7 @@ class SlurmRunner:
 
         while True:
             logger.info(
-                "Monitoring job {} (attempt {}/{})", job_id, attempt, self.max_restarts
+                "Monitoring job {} (submission {}/{})", job_id, attempt, self.max_restarts
             )
             info = self.fetch_info(job_id)
             status = self.parse_status(info)
