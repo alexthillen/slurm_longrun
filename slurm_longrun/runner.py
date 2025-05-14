@@ -101,7 +101,7 @@ class SlurmRunner:
                     logger.error("Resubmission failed.")
                     return status
                 job_id = new_id
-                logger.success(f"Resubmitted based on status={status.value} job as {job_id}")
+                logger.success(f"Resubmitted based on status={status.value} job with ID: {job_id}")
                 continue
 
             # final outcome
