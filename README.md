@@ -2,6 +2,8 @@
 
 Slurm Longrun is a Python package that wraps Slurm’s `sbatch` command to automatically resubmit jobs that time out, allowing you to run workloads that exceed a single‐job walltime without manual intervention. It supports optional terminal detachment (so your monitor survives after you log out), configurable retry limits, and built-in logging via Loguru.
 
+This tool was developed as a project for the [Large-Scale AI Engineering](https://ai.ethz.ch/education/courses/large-scale-ai-engineering.html) course on the CSCS Alps supercomputer.
+
 ---
 
 ## Installation
