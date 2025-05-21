@@ -66,6 +66,5 @@ class JobStatus(Enum):
             JobStatus.DEADLINE,
             JobStatus.PREEMPTED,
             JobStatus.NODE_FAIL,
-            JobStatus.OUT_OF_MEMORY,
             JobStatus.REVOKED,
         }

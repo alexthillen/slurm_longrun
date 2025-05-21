@@ -31,9 +31,9 @@ from loguru import logger
 )
 @click.option(
     "--max-restarts",
-    default=99,
+    default=999,
     show_default=True,
-    help="Resubmit up to this many times on TIMEOUT",
+    help="Resubmit up to this many times on JobStatus.should_resubmit is True",
 )
 @click.argument("sbatch_args", nargs=-1, type=click.UNPROCESSED)
 def main(use_verbosity, detached, max_restarts, sbatch_args):
